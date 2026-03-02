@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from datetime import datetime
 from io import BytesIO
 import zipfile
@@ -124,8 +123,15 @@ def copy_cell_style(source_cell, target_cell):
         target_cell.protection = copy(source_cell.protection)
         target_cell.alignment = copy(source_cell.alignment)
 
+def clear_cell_formatting(cell):
+    """Clear formatting จาก cell"""
+    cell.font = copy(cell.font.__class__())
+    cell.fill = copy(cell.fill.__class__())
+    cell.border = copy(cell.border.__class__())
+    cell.alignment = copy(cell.alignment.__class__())
+
 def process_master_form_f1(master_file_path, data_info):
-    """ประมวลผล Master Form (F1 Logic) - Copy Formatting ทั้งหมด"""
+    """ประมวลผล Master Form (F1 Logic) - เติมเฉพาะแถวที่ต้อง"""
     wb = load_workbook(master_file_path)
     ws = wb['Factory code label']
     
@@ -171,6 +177,17 @@ def process_master_form_f1(master_file_path, data_info):
         target_f = ws.cell(row=row, column=6)
         target_f.value = color_data['qty']
         copy_cell_style(template_f, target_f)
+    
+    # ลบข้อมูลและ Formatting จากแถวที่ไม่ใช้
+    last_row = 21 + len(colors) - 1
+    for row_idx in range(last_row + 1, 42):  # ลบจาก row ที่เกิน ถึง row 41
+        for col_idx in range(1, 7):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.value = None
+            cell.fill = copy(cell.fill.__class__())
+            cell.font = copy(cell.font.__class__())
+            cell.border = copy(cell.border.__class__())
+            cell.alignment = copy(cell.alignment.__class__())
     
     # Return as bytes
     output = BytesIO()
@@ -248,7 +265,7 @@ if st.button("🚀 ประมวลผล (F1 Logic)", key='process_btn', use_
                 st.markdown(f"<div class='error-box'>❌ {data_file.name}: {str(e)}</div>", unsafe_allow_html=True)
         
         if st.session_state.processed_files:
-            st.markdown("<div class='success-box'>✅ ประมวลผลสำเร็จ! (F1 Logic - Copy Formatting)</div>", unsafe_allow_html=True)
+            st.markdown("<div class='success-box'>✅ ประมวลผลสำเร็จ! (F1 Logic - Clean Output)</div>", unsafe_allow_html=True)
 
 # Display results
 if 'processed_files' in st.session_state and st.session_state.processed_files:
