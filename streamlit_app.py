@@ -133,7 +133,7 @@ def copy_cell_style(source_cell, target_cell):
         target_cell.alignment = copy(source_cell.alignment)
 
 def process_master_form_f1(master_file_path, data_info):
-    """ประมวลผล Master Form (F1 Logic)"""
+    """ประมวลผล Master Form (F1 Logic) - รักษา Row 41 (Total)"""
     wb = load_workbook(master_file_path)
     ws = wb['Factory code label']
     
@@ -180,12 +180,30 @@ def process_master_form_f1(master_file_path, data_info):
         target_f.value = color_data['qty']
         copy_cell_style(template_f, target_f)
     
-    # ลบข้อมูลจากแถวที่ไม่ใช้ (เฉพาะค่า)
-    last_row = 21 + len(colors) - 1
-    for row_idx in range(last_row + 1, 42):
+    # แทรกแถวว่างจาก Row ที่มีข้อมูลสิ้นสุด ถึง Row 40
+    # เก็บ Formatting แต่ลบค่าข้อมูล
+    last_row_with_data = 21 + len(colors) - 1
+    
+    for row_idx in range(last_row_with_data + 1, 41):
         for col_idx in range(2, 7):
             cell = ws.cell(row=row_idx, column=col_idx)
+            # ลบค่าแต่รักษา Formatting
             cell.value = None
+            # Copy Formatting จาก template row
+            template_cell = ws.cell(row=template_row, column=col_idx)
+            copy_cell_style(template_cell, cell)
+    
+    # ตรวจสอบว่า Row 41 มี Total และสูตร
+    cell_e41 = ws['E41']
+    cell_f41 = ws['F41']
+    
+    # ถ้า E41 ไม่มี "Total" ให้เติม
+    if not cell_e41.value or 'Total' not in str(cell_e41.value):
+        cell_e41.value = 'Total'
+    
+    # ถ้า F41 ไม่มีสูตร ให้เติม
+    if not cell_f41.value or '=SUM' not in str(cell_f41.value):
+        cell_f41.value = '=SUM(F21:F40)'
     
     # Return as bytes
     output = BytesIO()
