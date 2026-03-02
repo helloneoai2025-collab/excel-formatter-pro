@@ -3,6 +3,7 @@ import pandas as pd
 from openpyxl import load_workbook
 from datetime import datetime
 from io import BytesIO
+import zipfile
 import os
 
 st.set_page_config(
@@ -20,197 +21,206 @@ st.markdown("""
             color: white;
             padding: 20px;
             border-radius: 10px;
-            text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
         .success-box {
             background: #d4edda;
-            border-left: 5px solid #28a745;
+            color: #155724;
             padding: 15px;
             border-radius: 5px;
+            border-left: 5px solid #28a745;
             margin: 10px 0;
         }
         .error-box {
             background: #f8d7da;
-            border-left: 5px solid #dc3545;
+            color: #721c24;
             padding: 15px;
             border-radius: 5px;
+            border-left: 5px solid #dc3545;
             margin: 10px 0;
         }
     </style>
 """, unsafe_allow_html=True)
 
-def extract_color_data(file_bytes, filename):
-    try:
-        temp_file = f"temp_{filename}"
-        with open(temp_file, 'wb') as f:
-            f.write(file_bytes)
+st.markdown("""
+    <div class="title-main">
+        <h1>📊 Excel Formatter Pro</h1>
+        <p>ระบบประมวลผล Master Form พร้อมข้อมูล Color อัตโนมัติ</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# Functions
+def extract_color_data(file_path):
+    """ดึงข้อมูล Color จากไฟล์ข้อมูล"""
+    wb = load_workbook(file_path)
+    ws = wb.active
+    
+    po_number = ws['H5'].value if ws['H5'].value else 'UNKNOWN'
+    colors = []
+    
+    for row_idx in range(20, ws.max_row + 1):
+        cell_a = ws.cell(row=row_idx, column=1)
+        cell_j = ws.cell(row=row_idx, column=10)
         
-        wb = load_workbook(temp_file)
-        ws = wb.active
-        
-        po_number = ws['H5'].value if ws['H5'].value else 'UNKNOWN'
-        colors = []
-        
-        for row_idx in range(1, ws.max_row + 1):
-            cell_a = ws.cell(row=row_idx, column=1)
-            cell_j = ws.cell(row=row_idx, column=10)
-            
-            if cell_a.value and isinstance(cell_a.value, str) and '/' in str(cell_a.value):
-                if cell_a.value not in [c['color_full'] for c in colors]:
+        if cell_a.value and isinstance(cell_a.value, str):
+            if '/' in cell_a.value:
+                parts = cell_a.value.split('/')
+                if len(parts) == 2:
+                    code11 = parts[0].strip()
+                    code10 = parts[1].strip()
                     qty = cell_j.value if cell_j.value else 0
+                    
                     colors.append({
-                        'color_full': str(cell_a.value),
-                        'qty': qty
+                        'color_code': cell_a.value,
+                        'code11': code11,
+                        'code10': code10,
+                        'qty': int(qty) if qty else 0
                     })
-        
-        os.remove(temp_file)
-        
-        return {
-            'success': True,
-            'po_number': po_number,
-            'colors': colors,
-            'color_count': len(colors)
-        }
-    except Exception as e:
-        return {
-            'success': False,
-            'error': str(e)
-        }
+    
+    return {
+        'po_number': po_number,
+        'colors': colors
+    }
 
-def process_master_form(master_bytes, color_data_list):
-    try:
-        results = []
-        
-        for idx, data_info in enumerate(color_data_list):
-            if not data_info['success']:
-                results.append({
-                    'success': False,
-                    'input_file': f"ไฟล์ที่ {idx+1}",
-                    'error': data_info['error']
-                })
-                continue
-            
-            temp_master = f"temp_master_{idx}.xlsx"
-            with open(temp_master, 'wb') as f:
-                f.write(master_bytes)
-            
-            try:
-                wb = load_workbook(temp_master)
-                ws = wb['Factory code label']
-                
-                po_number = data_info['po_number']
-                colors = data_info['colors']
-                
-                ws['F5'].value = po_number
-                ws['F7'].value = datetime.now().strftime('%d/%m/%Y')
-                ws['B17'].value = "Tear-Away-Factory-ID-Label"
-                
-                start_row = 21
-                for col_idx, color_info in enumerate(colors):
-                    row = start_row + col_idx
-                    
-                    color_full = color_info['color_full']
-                    parts = color_full.split('/')
-                    code11 = parts[0] if len(parts) > 0 else ''
-                    code10 = parts[1] if len(parts) > 1 else ''
-                    qty = color_info['qty']
-                    
-                    ws.cell(row=row, column=2).value = "OPTION 1"
-                    ws.cell(row=row, column=3).value = code10
-                    ws.cell(row=row, column=5).value = code11
-                    ws.cell(row=row, column=6).value = qty
-                
-                output_filename = f"processed_{po_number}_{data_info.get('data_filename', f'file_{idx}')}"
-                output_bytes = BytesIO()
-                wb.save(output_bytes)
-                output_bytes.seek(0)
-                
-                results.append({
-                    'success': True,
-                    'input_file': data_info.get('data_filename', f'ไฟล์ที่ {idx+1}'),
-                    'po_number': po_number,
-                    'color_count': len(colors),
-                    'output_filename': output_filename + '.xlsx',
-                    'output_bytes': output_bytes.getvalue()
-                })
-            finally:
-                if os.path.exists(temp_master):
-                    os.remove(temp_master)
-        
-        return results
-    except Exception as e:
-        return [{'success': False, 'error': str(e)}]
+def process_master_form(master_file_path, data_info):
+    """ประมวลผล Master Form"""
+    wb = load_workbook(master_file_path)
+    ws = wb['Factory code label']
+    
+    ws['F5'].value = data_info['po_number']
+    
+    today = datetime.now().strftime('%d/%m/%Y')
+    ws['F7'].value = today
+    
+    ws['B17'].value = 'Tear-Away-Factory-ID-Label'
+    
+    colors = data_info['colors']
+    
+    for idx, color_data in enumerate(colors):
+        row = 21 + idx
+        ws[f'B{row}'].value = 'OPTION 1'
+        ws[f'C{row}'].value = color_data['code10']
+        ws[f'E{row}'].value = color_data['code11']
+        ws[f'F{row}'].value = color_data['qty']
+    
+    # Return as bytes
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
 
-st.markdown('<div class="title-main"><h1>📊 Excel Formatter Pro</h1><p>ระบบประมวลผล Master Form พร้อมข้อมูล Color</p></div>', unsafe_allow_html=True)
+# Sidebar
+st.sidebar.markdown("### 📋 ขั้นตอน")
+st.sidebar.markdown("1. อัพโหลด Master Form")
+st.sidebar.markdown("2. อัพโหลดไฟล์ข้อมูล")
+st.sidebar.markdown("3. กด 🚀 ประมวลผล")
+st.sidebar.markdown("4. ดาวน์โหลดไฟล์")
 
-with st.sidebar:
-    st.header("ℹ️ ข้อมูล")
-    st.markdown("**วิธีใช้:**\n1. อัพโหลด Master Form\n2. อัพโหลดไฟล์ข้อมูล\n3. กด ประมวลผล\n4. ดาวน์โหลดไฟล์")
-
+# Main content
 col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("📁 Master Form")
-    master_file = st.file_uploader("เลือก Master Form (.xlsx)", type=['xlsx'], key='master')
-    if master_file:
-        st.success(f"✅ {master_file.name}")
+    master_file = st.file_uploader(
+        "อัพโหลด Master Form (.xlsx)",
+        type=['xlsx'],
+        key='master'
+    )
 
 with col2:
     st.subheader("📂 ไฟล์ข้อมูล")
-    data_files = st.file_uploader("เลือกไฟล์ข้อมูล (.xlsx)", type=['xlsx'], accept_multiple_files=True, key='data')
-    if data_files:
-        st.success(f"✅ {len(data_files)} ไฟล์")
+    data_files = st.file_uploader(
+        "อัพโหลดไฟล์ข้อมูล (.xlsx)",
+        type=['xlsx'],
+        accept_multiple_files=True,
+        key='data'
+    )
 
-st.markdown("---")
-
-if st.button("🚀 ประมวลผล", use_container_width=True, type="primary"):
+# Process button
+if st.button("🚀 ประมวลผล", key='process_btn', use_container_width=True):
     if not master_file:
-        st.error("❌ โปรดอัพโหลด Master Form")
+        st.markdown("<div class='error-box'>⚠️ โปรดอัพโหลด Master Form</div>", unsafe_allow_html=True)
     elif not data_files:
-        st.error("❌ โปรดอัพโหลดไฟล์ข้อมูล")
+        st.markdown("<div class='error-box'>⚠️ โปรดอัพโหลดไฟล์ข้อมูล</div>", unsafe_allow_html=True)
     else:
+        st.session_state.processed_files = []
+        
         progress_bar = st.progress(0)
-        status_text = st.empty()
+        total = len(data_files)
         
-        master_bytes = master_file.read()
+        for idx, data_file in enumerate(data_files):
+            try:
+                # Extract data
+                with open(f'temp_{data_file.name}', 'wb') as f:
+                    f.write(data_file.getbuffer())
+                
+                data_info = extract_color_data(f'temp_{data_file.name}')
+                
+                # Process
+                output = process_master_form(master_file, data_info)
+                
+                po_num = data_info['po_number']
+                output_name = f"processed_{po_num}_{data_file.name}"
+                
+                st.session_state.processed_files.append({
+                    'name': output_name,
+                    'data': output.getvalue(),
+                    'po': po_num,
+                    'colors': len(data_info['colors'])
+                })
+                
+                # Clean up
+                os.remove(f'temp_{data_file.name}')
+                
+                progress_bar.progress((idx + 1) / total)
+                
+            except Exception as e:
+                st.markdown(f"<div class='error-box'>❌ {data_file.name}: {str(e)}</div>", unsafe_allow_html=True)
         
-        status_text.text("📊 กำลังดึงข้อมูล...")
-        progress_bar.progress(25)
-        
-        color_data_list = []
-        for data_file in data_files:
-            data_result = extract_color_data(data_file.read(), data_file.name)
-            data_result['data_filename'] = data_file.name
-            color_data_list.append(data_result)
-        
-        status_text.text("⚙️ กำลังประมวลผล...")
-        progress_bar.progress(50)
-        
-        results = process_master_form(master_bytes, color_data_list)
-        
-        status_text.text("✅ เสร็จสิ้น!")
-        progress_bar.progress(100)
-        
-        st.markdown("---")
-        st.subheader("📋 ผลลัพธ์")
-        
-        success_count = 0
-        for result in results:
-            if result['success']:
-                success_count += 1
-                st.success(f"✅ {result['input_file']} | PO#: {result['po_number']} | {result['color_count']} สี")
-                st.download_button(
-                    label=f"📥 {result['output_filename']}",
-                    data=result['output_bytes'],
-                    file_name=result['output_filename'],
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-            else:
-                st.error(f"❌ {result.get('input_file', 'Unknown')}: {result.get('error', 'Unknown error')}")
-        
-        st.info(f"📈 รวม: {success_count}/{len(results)} ไฟล์สำเร็จ")
+        if st.session_state.processed_files:
+            st.markdown("<div class='success-box'>✅ ประมวลผลสำเร็จ!</div>", unsafe_allow_html=True)
 
-st.markdown("---")
-st.markdown("<div style='text-align: center; color: #666; font-size: 12px;'><p>Excel Formatter Pro v1.0 | Powered by Streamlit</p></div>", unsafe_allow_html=True)
+# Display results
+if 'processed_files' in st.session_state and st.session_state.processed_files:
+    st.subheader("📥 ดาวน์โหลดไฟล์")
+    
+    col1, col2 = st.columns(2)
+    
+    # ปุ่มดาวน์โหลดเดี่ยว
+    with col1:
+        st.markdown("**ดาวน์โหลดแยกไฟล์:**")
+        for file_info in st.session_state.processed_files:
+            st.download_button(
+                label=f"📄 {file_info['name']} ({file_info['colors']} Colors)",
+                data=file_info['data'],
+                file_name=file_info['name'],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+    
+    # ปุ่มดาวน์โหลดทั้งหมด
+    with col2:
+        st.markdown("**ดาวน์โหลดทั้งหมด:**")
+        if st.button("📥 ดาวน์โหลด ZIP ทั้งหมด", use_container_width=True):
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for file_info in st.session_state.processed_files:
+                    zip_file.writestr(file_info['name'], file_info['data'])
+            
+            zip_buffer.seek(0)
+            st.download_button(
+                label="📦 Download ZIP",
+                data=zip_buffer.getvalue(),
+                file_name="Excel_Formatter_Output.zip",
+                mime="application/zip",
+                use_container_width=True
+            )
+    
+    # Show summary
+    st.subheader("📊 สรุปผลการประมวลผล")
+    summary_data = {
+        'ไฟล์': [f['name'] for f in st.session_state.processed_files],
+        'PO#': [f['po'] for f in st.session_state.processed_files],
+        'จำนวน Colors': [f['colors'] for f in st.session_state.processed_files]
+    }
+    st.table(summary_data)
