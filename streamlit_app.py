@@ -1,13 +1,15 @@
 import streamlit as st
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from datetime import datetime
 from io import BytesIO
 import zipfile
 import os
+from copy import copy
 
 st.set_page_config(
-    page_title="Excel Formatter Pro",
+    page_title="Excel Formatter F1 Pro",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -44,58 +46,113 @@ st.markdown("""
 
 st.markdown("""
     <div class="title-main">
-        <h1>📊 Excel Formatter Pro</h1>
-        <p>ระบบประมวลผล Master Form พร้อมข้อมูล Color อัตโนมัติ</p>
+        <h1>📊 Excel Formatter F1 Pro (Streamlit)</h1>
+        <p>ระบบประมวลผล Master Form พร้อมข้อมูล Color - Logic F1 เดียวกับ Canvas</p>
     </div>
 """, unsafe_allow_html=True)
 
-# Functions
-def extract_color_data(file_path):
-    """ดึงข้อมูล Color จากไฟล์ข้อมูล"""
+# ===== F1 LOGIC FUNCTIONS =====
+
+def extract_color_data_f1(file_path):
+    """
+    ดึงข้อมูล Color จากไฟล์ข้อมูล (F1 Logic)
+    - ดึง PO# จาก H5
+    - ดึง Color Data จากโซนสีฟ้า (RGB: FF00B0F0)
+    - ถ้าไม่มีสีฟ้า ให้ดึงจากแถวที่มี "/" ใน Column A
+    - ตรวจสอบให้แน่ใจว่า "/" มีค่าทั้งสองด้าน
+    """
     wb = load_workbook(file_path)
     ws = wb.active
     
     po_number = ws['H5'].value if ws['H5'].value else 'UNKNOWN'
     colors = []
     
+    # หา Blue Zone ก่อน (RGB: FF00B0F0)
+    blue_zone_start = None
+    
     for row_idx in range(20, ws.max_row + 1):
         cell_a = ws.cell(row=row_idx, column=1)
-        cell_j = ws.cell(row=row_idx, column=10)
         
-        if cell_a.value and isinstance(cell_a.value, str):
-            if '/' in cell_a.value:
-                parts = cell_a.value.split('/')
-                if len(parts) == 2:
-                    code11 = parts[0].strip()
-                    code10 = parts[1].strip()
-                    qty = cell_j.value if cell_j.value else 0
+        # ตรวจสอบว่าเป็นสีฟ้า (F1 logic)
+        is_blue = False
+        if cell_a.fill and cell_a.fill.start_color:
+            try:
+                if hasattr(cell_a.fill.start_color, 'rgb'):
+                    if cell_a.fill.start_color.rgb == 'FF00B0F0':
+                        is_blue = True
+            except:
+                pass
+        
+        # ถ้าเจอสีฟ้า
+        if is_blue and cell_a.value and isinstance(cell_a.value, str) and '/' in cell_a.value:
+            cell_j = ws.cell(row=row_idx, column=10)
+            parts = cell_a.value.split('/')
+            
+            if len(parts) == 2:
+                code11 = parts[0].strip()
+                code10 = parts[1].strip()
+                qty = cell_j.value if cell_j.value else 0
+                
+                colors.append({
+                    'color_code': cell_a.value,
+                    'code11': code11,
+                    'code10': code10,
+                    'qty': int(qty) if qty else 0
+                })
+    
+    # ถ้าไม่มี Blue Zone ให้ดึงจากข้อมูลธรรมดา (ถ้ามี)
+    if not colors:
+        for row_idx in range(20, ws.max_row + 1):
+            cell_a = ws.cell(row=row_idx, column=1)
+            
+            if cell_a.value and isinstance(cell_a.value, str):
+                if '/' in cell_a.value:
+                    cell_j = ws.cell(row=row_idx, column=10)
+                    parts = cell_a.value.split('/')
                     
-                    colors.append({
-                        'color_code': cell_a.value,
-                        'code11': code11,
-                        'code10': code10,
-                        'qty': int(qty) if qty else 0
-                    })
+                    if len(parts) == 2:
+                        code11 = parts[0].strip()
+                        code10 = parts[1].strip()
+                        
+                        # ตรวจสอบให้แน่ใจว่าเป็น Color Code จริง
+                        # Color Code ควรจะเป็น format: XXXXXXXXX/XXXXXXXX
+                        if len(code11) >= 5 and len(code10) >= 2:
+                            qty = cell_j.value if cell_j.value else 0
+                            
+                            colors.append({
+                                'color_code': cell_a.value,
+                                'code11': code11,
+                                'code10': code10,
+                                'qty': int(qty) if qty else 0
+                            })
     
     return {
         'po_number': po_number,
         'colors': colors
     }
 
-def process_master_form(master_file_path, data_info):
-    """ประมวลผล Master Form"""
+def process_master_form_f1(master_file_path, data_info):
+    """
+    ประมวลผล Master Form (F1 Logic)
+    - คง Formatting เดิม 100%
+    - เติมเฉพาะแถบแดง
+    """
     wb = load_workbook(master_file_path)
     ws = wb['Factory code label']
     
+    # เติม PO# ใน F5
     ws['F5'].value = data_info['po_number']
     
+    # เติม DATE ใน F7
     today = datetime.now().strftime('%d/%m/%Y')
     ws['F7'].value = today
     
+    # เติม CUSTOMER ITEM CODE ใน B17
     ws['B17'].value = 'Tear-Away-Factory-ID-Label'
     
     colors = data_info['colors']
     
+    # เติม OPTION 1, CODE, QTY
     for idx, color_data in enumerate(colors):
         row = 21 + idx
         ws[f'B{row}'].value = 'OPTION 1'
@@ -110,7 +167,7 @@ def process_master_form(master_file_path, data_info):
     return output
 
 # Sidebar
-st.sidebar.markdown("### 📋 ขั้นตอน")
+st.sidebar.markdown("### 📋 ขั้นตอน (F1 Logic)")
 st.sidebar.markdown("1. อัพโหลด Master Form")
 st.sidebar.markdown("2. อัพโหลดไฟล์ข้อมูล")
 st.sidebar.markdown("3. กด 🚀 ประมวลผล")
@@ -137,7 +194,7 @@ with col2:
     )
 
 # Process button
-if st.button("🚀 ประมวลผล", key='process_btn', use_container_width=True):
+if st.button("🚀 ประมวลผล (F1 Logic)", key='process_btn', use_container_width=True):
     if not master_file:
         st.markdown("<div class='error-box'>⚠️ โปรดอัพโหลด Master Form</div>", unsafe_allow_html=True)
     elif not data_files:
@@ -150,14 +207,15 @@ if st.button("🚀 ประมวลผล", key='process_btn', use_container_w
         
         for idx, data_file in enumerate(data_files):
             try:
-                # Extract data
+                # Save temp file
                 with open(f'temp_{data_file.name}', 'wb') as f:
                     f.write(data_file.getbuffer())
                 
-                data_info = extract_color_data(f'temp_{data_file.name}')
+                # Extract data (F1 Logic)
+                data_info = extract_color_data_f1(f'temp_{data_file.name}')
                 
                 # Process
-                output = process_master_form(master_file, data_info)
+                output = process_master_form_f1(master_file, data_info)
                 
                 po_num = data_info['po_number']
                 output_name = f"processed_{po_num}_{data_file.name}"
@@ -178,7 +236,7 @@ if st.button("🚀 ประมวลผล", key='process_btn', use_container_w
                 st.markdown(f"<div class='error-box'>❌ {data_file.name}: {str(e)}</div>", unsafe_allow_html=True)
         
         if st.session_state.processed_files:
-            st.markdown("<div class='success-box'>✅ ประมวลผลสำเร็จ!</div>", unsafe_allow_html=True)
+            st.markdown("<div class='success-box'>✅ ประมวลผลสำเร็จ! (F1 Logic)</div>", unsafe_allow_html=True)
 
 # Display results
 if 'processed_files' in st.session_state and st.session_state.processed_files:
@@ -209,7 +267,7 @@ if 'processed_files' in st.session_state and st.session_state.processed_files:
             
             zip_buffer.seek(0)
             st.download_button(
-                label="📦 Download ZIP",
+                label="📦 ดาวน์โหลด ZIP",
                 data=zip_buffer.getvalue(),
                 file_name="Excel_Formatter_Output.zip",
                 mime="application/zip",
@@ -217,7 +275,7 @@ if 'processed_files' in st.session_state and st.session_state.processed_files:
             )
     
     # Show summary
-    st.subheader("📊 สรุปผลการประมวลผล")
+    st.subheader("📊 สรุปผลการประมวลผล (F1 Logic)")
     summary_data = {
         'ไฟล์': [f['name'] for f in st.session_state.processed_files],
         'PO#': [f['po'] for f in st.session_state.processed_files],
