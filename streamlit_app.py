@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.styles import PatternFill, Font, Border, Alignment
 from datetime import datetime
 from io import BytesIO
 import zipfile
@@ -46,17 +47,14 @@ st.markdown("""
 st.markdown("""
     <div class="title-main">
         <h1>📊 Excel Formatter F1 Pro (Streamlit)</h1>
-        <p>ระบบประมวลผล Master Form พร้อมข้อมูล Color - Logic F1 (Fixed)</p>
+        <p>ระบบประมวลผล Master Form พร้อมข้อมูล Color - Logic F1</p>
     </div>
 """, unsafe_allow_html=True)
 
-# ===== F1 LOGIC FUNCTIONS (FIXED) =====
+# ===== F1 LOGIC FUNCTIONS =====
 
-def extract_color_data_f1_fixed(file_path):
-    """ดึงข้อมูล Color จากไฟล์ข้อมูล (F1 Logic - Fixed)
-    - ดึงเฉพาะแถวที่มี Qty > 0
-    - ดึงเฉพาะ Color Code ที่ format ถูกต้อง (code10 ต้องสั้น)
-    """
+def extract_color_data_f1(file_path):
+    """ดึงข้อมูล Color จากไฟล์ข้อมูล (F1 Logic)"""
     wb = load_workbook(file_path)
     ws = wb.active
     
@@ -85,14 +83,17 @@ def extract_color_data_f1_fixed(file_path):
                 code10 = parts[1].strip()
                 qty = cell_j.value if cell_j.value else 0
                 
-                # ตรวจสอบ: Qty > 0 และ Code format ถูกต้อง
-                if int(qty) > 0 and len(code10) <= 10 and code10[0].isupper():
-                    colors.append({
-                        'color_code': cell_a.value,
-                        'code11': code11,
-                        'code10': code10,
-                        'qty': int(qty)
-                    })
+                try:
+                    qty = int(qty)
+                    if qty > 0 and len(code10) <= 10:
+                        colors.append({
+                            'color_code': cell_a.value,
+                            'code11': code11,
+                            'code10': code10,
+                            'qty': qty
+                        })
+                except:
+                    pass
     
     # ถ้าไม่มี Blue Zone ให้ดึงจากข้อมูลธรรมดา
     if not colors:
@@ -108,15 +109,17 @@ def extract_color_data_f1_fixed(file_path):
                     code10 = parts[1].strip()
                     qty = cell_j.value if cell_j.value else 0
                     
-                    # ตรวจสอบ: Qty > 0 และ Code format ถูกต้อง
-                    if int(qty) > 0 and len(code11) >= 5 and len(code10) >= 2 and len(code10) <= 10:
-                        if code10[0].isupper() and code11[0].isupper():
+                    try:
+                        qty = int(qty)
+                        if qty > 0 and len(code11) >= 5 and len(code10) >= 2 and len(code10) <= 10:
                             colors.append({
                                 'color_code': cell_a.value,
                                 'code11': code11,
                                 'code10': code10,
-                                'qty': int(qty)
+                                'qty': qty
                             })
+                    except:
+                        pass
     
     return {'po_number': po_number, 'colors': colors}
 
@@ -127,11 +130,10 @@ def copy_cell_style(source_cell, target_cell):
         target_cell.border = copy(source_cell.border)
         target_cell.fill = copy(source_cell.fill)
         target_cell.number_format = copy(source_cell.number_format)
-        target_cell.protection = copy(source_cell.protection)
         target_cell.alignment = copy(source_cell.alignment)
 
 def process_master_form_f1(master_file_path, data_info):
-    """ประมวลผล Master Form (F1 Logic) - เติมเฉพาะแถวที่ต้อง"""
+    """ประมวลผล Master Form (F1 Logic)"""
     wb = load_workbook(master_file_path)
     ws = wb['Factory code label']
     
@@ -178,16 +180,12 @@ def process_master_form_f1(master_file_path, data_info):
         target_f.value = color_data['qty']
         copy_cell_style(template_f, target_f)
     
-    # ลบข้อมูลและ Formatting จากแถวที่ไม่ใช้
+    # ลบข้อมูลจากแถวที่ไม่ใช้ (เฉพาะค่า)
     last_row = 21 + len(colors) - 1
     for row_idx in range(last_row + 1, 42):
-        for col_idx in range(1, 7):
+        for col_idx in range(2, 7):
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.value = None
-            cell.fill = copy(cell.fill.__class__())
-            cell.font = copy(cell.font.__class__())
-            cell.border = copy(cell.border.__class__())
-            cell.alignment = copy(cell.alignment.__class__())
     
     # Return as bytes
     output = BytesIO()
@@ -240,8 +238,8 @@ if st.button("🚀 ประมวลผล (F1 Logic)", key='process_btn', use_
                 with open(f'temp_{data_file.name}', 'wb') as f:
                     f.write(data_file.getbuffer())
                 
-                # Extract data (F1 Logic Fixed)
-                data_info = extract_color_data_f1_fixed(f'temp_{data_file.name}')
+                # Extract data (F1 Logic)
+                data_info = extract_color_data_f1(f'temp_{data_file.name}')
                 
                 # Process
                 output = process_master_form_f1(master_file, data_info)
@@ -265,7 +263,7 @@ if st.button("🚀 ประมวลผล (F1 Logic)", key='process_btn', use_
                 st.markdown(f"<div class='error-box'>❌ {data_file.name}: {str(e)}</div>", unsafe_allow_html=True)
         
         if st.session_state.processed_files:
-            st.markdown("<div class='success-box'>✅ ประมวลผลสำเร็จ! (F1 Logic - Clean Output)</div>", unsafe_allow_html=True)
+            st.markdown("<div class='success-box'>✅ ประมวลผลสำเร็จ!</div>", unsafe_allow_html=True)
 
 # Display results
 if 'processed_files' in st.session_state and st.session_state.processed_files:
@@ -278,7 +276,7 @@ if 'processed_files' in st.session_state and st.session_state.processed_files:
         st.markdown("**ดาวน์โหลดแยกไฟล์:**")
         for file_info in st.session_state.processed_files:
             st.download_button(
-                label=f"📄 {file_info['name']} ({file_info['colors']} Colors)",
+                label=f"📄 {file_info['name'][:50]}... ({file_info['colors']} Colors)",
                 data=file_info['data'],
                 file_name=file_info['name'],
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -288,26 +286,27 @@ if 'processed_files' in st.session_state and st.session_state.processed_files:
     # ปุ่มดาวน์โหลดทั้งหมด
     with col2:
         st.markdown("**ดาวน์โหลดทั้งหมด:**")
-        if st.button("📥 ดาวน์โหลด ZIP ทั้งหมด", use_container_width=True):
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                for file_info in st.session_state.processed_files:
-                    zip_file.writestr(file_info['name'], file_info['data'])
-            
-            zip_buffer.seek(0)
-            st.download_button(
-                label="📦 ดาวน์โหลด ZIP",
-                data=zip_buffer.getvalue(),
-                file_name="Excel_Formatter_Output.zip",
-                mime="application/zip",
-                use_container_width=True
-            )
+        if len(st.session_state.processed_files) > 1:
+            if st.button("📥 ดาวน์โหลด ZIP ทั้งหมด", use_container_width=True):
+                zip_buffer = BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                    for file_info in st.session_state.processed_files:
+                        zip_file.writestr(file_info['name'], file_info['data'])
+                
+                zip_buffer.seek(0)
+                st.download_button(
+                    label="📦 ดาวน์โหลด ZIP",
+                    data=zip_buffer.getvalue(),
+                    file_name="Excel_Formatter_Output.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
     
     # Show summary
-    st.subheader("📊 สรุปผลการประมวลผล (F1 Logic)")
+    st.subheader("📊 สรุปผลการประมวลผล")
     summary_data = {
-        'ไฟล์': [f['name'] for f in st.session_state.processed_files],
+        'ไฟล์': [f['name'][:40] + '...' if len(f['name']) > 40 else f['name'] for f in st.session_state.processed_files],
         'PO#': [f['po'] for f in st.session_state.processed_files],
-        'จำนวน Colors': [f['colors'] for f in st.session_state.processed_files]
+        'Colors': [f['colors'] for f in st.session_state.processed_files]
     }
     st.table(summary_data)
