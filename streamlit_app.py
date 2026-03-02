@@ -46,14 +46,17 @@ st.markdown("""
 st.markdown("""
     <div class="title-main">
         <h1>📊 Excel Formatter F1 Pro (Streamlit)</h1>
-        <p>ระบบประมวลผล Master Form พร้อมข้อมูล Color - Logic F1</p>
+        <p>ระบบประมวลผล Master Form พร้อมข้อมูล Color - Logic F1 (Fixed)</p>
     </div>
 """, unsafe_allow_html=True)
 
-# ===== F1 LOGIC FUNCTIONS =====
+# ===== F1 LOGIC FUNCTIONS (FIXED) =====
 
-def extract_color_data_f1(file_path):
-    """ดึงข้อมูล Color จากไฟล์ข้อมูล (F1 Logic)"""
+def extract_color_data_f1_fixed(file_path):
+    """ดึงข้อมูล Color จากไฟล์ข้อมูล (F1 Logic - Fixed)
+    - ดึงเฉพาะแถวที่มี Qty > 0
+    - ดึงเฉพาะ Color Code ที่ format ถูกต้อง (code10 ต้องสั้น)
+    """
     wb = load_workbook(file_path)
     ws = wb.active
     
@@ -82,12 +85,14 @@ def extract_color_data_f1(file_path):
                 code10 = parts[1].strip()
                 qty = cell_j.value if cell_j.value else 0
                 
-                colors.append({
-                    'color_code': cell_a.value,
-                    'code11': code11,
-                    'code10': code10,
-                    'qty': int(qty) if qty else 0
-                })
+                # ตรวจสอบ: Qty > 0 และ Code format ถูกต้อง
+                if int(qty) > 0 and len(code10) <= 10 and code10[0].isupper():
+                    colors.append({
+                        'color_code': cell_a.value,
+                        'code11': code11,
+                        'code10': code10,
+                        'qty': int(qty)
+                    })
     
     # ถ้าไม่มี Blue Zone ให้ดึงจากข้อมูลธรรมดา
     if not colors:
@@ -101,15 +106,17 @@ def extract_color_data_f1(file_path):
                 if len(parts) == 2:
                     code11 = parts[0].strip()
                     code10 = parts[1].strip()
+                    qty = cell_j.value if cell_j.value else 0
                     
-                    if len(code11) >= 5 and len(code10) >= 2:
-                        qty = cell_j.value if cell_j.value else 0
-                        colors.append({
-                            'color_code': cell_a.value,
-                            'code11': code11,
-                            'code10': code10,
-                            'qty': int(qty) if qty else 0
-                        })
+                    # ตรวจสอบ: Qty > 0 และ Code format ถูกต้อง
+                    if int(qty) > 0 and len(code11) >= 5 and len(code10) >= 2 and len(code10) <= 10:
+                        if code10[0].isupper() and code11[0].isupper():
+                            colors.append({
+                                'color_code': cell_a.value,
+                                'code11': code11,
+                                'code10': code10,
+                                'qty': int(qty)
+                            })
     
     return {'po_number': po_number, 'colors': colors}
 
@@ -122,13 +129,6 @@ def copy_cell_style(source_cell, target_cell):
         target_cell.number_format = copy(source_cell.number_format)
         target_cell.protection = copy(source_cell.protection)
         target_cell.alignment = copy(source_cell.alignment)
-
-def clear_cell_formatting(cell):
-    """Clear formatting จาก cell"""
-    cell.font = copy(cell.font.__class__())
-    cell.fill = copy(cell.fill.__class__())
-    cell.border = copy(cell.border.__class__())
-    cell.alignment = copy(cell.alignment.__class__())
 
 def process_master_form_f1(master_file_path, data_info):
     """ประมวลผล Master Form (F1 Logic) - เติมเฉพาะแถวที่ต้อง"""
@@ -180,7 +180,7 @@ def process_master_form_f1(master_file_path, data_info):
     
     # ลบข้อมูลและ Formatting จากแถวที่ไม่ใช้
     last_row = 21 + len(colors) - 1
-    for row_idx in range(last_row + 1, 42):  # ลบจาก row ที่เกิน ถึง row 41
+    for row_idx in range(last_row + 1, 42):
         for col_idx in range(1, 7):
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.value = None
@@ -240,8 +240,8 @@ if st.button("🚀 ประมวลผล (F1 Logic)", key='process_btn', use_
                 with open(f'temp_{data_file.name}', 'wb') as f:
                     f.write(data_file.getbuffer())
                 
-                # Extract data (F1 Logic)
-                data_info = extract_color_data_f1(f'temp_{data_file.name}')
+                # Extract data (F1 Logic Fixed)
+                data_info = extract_color_data_f1_fixed(f'temp_{data_file.name}')
                 
                 # Process
                 output = process_master_form_f1(master_file, data_info)
